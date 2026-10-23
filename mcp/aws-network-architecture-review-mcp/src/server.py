@@ -786,12 +786,12 @@ def network_architecture_summary(region: str = "us-east-1") -> str:
                     all_dx_alarms.append({
                         "name": _clean_label(alarm.get("AlarmName")),
                         "state": alarm.get("StateValue"),
-                        "metric": alarm.get("MetricName"),
+                        "metric": _clean_label(alarm.get("MetricName")),
                         "threshold": alarm.get("Threshold"),
                         "comparison": alarm.get("ComparisonOperator"),
-                        "connection_id": next(
+                        "connection_id": _clean_label(next(
                             (d["Value"] for d in alarm.get("Dimensions", []) if d["Name"] == "ConnectionId"), None
-                        ),
+                        )),
                     })
     except Exception as e:
         alarms_error = str(e)
@@ -1361,6 +1361,35 @@ def http_transport_options():
     return {"stateless_http": True, "middleware": [AsgiMiddleware(_SessionIdHeader)]}
 
 
+def _is_lambda_runtime():
+    """True when running under the Lambda runtime.
+
+    AWS_LAMBDA_FUNCTION_NAME is set only by the Lambda runtime, so it is a
+    reliable signal. (AWS_LWA_PORT is not: a developer can set it to change the
+    local port, which would wrongly disable the local DNS-rebinding guard.)
+    """
+    import os
+
+    return bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
+
+def local_host_origin_guard():
+    """Host/Origin validation settings for LOCAL mode (loopback allowlist).
+
+    Returned to both the __main__ entry point and the tests so they share one
+    definition — if this guard is removed from startup, the test that calls it
+    fails too. Empty on Lambda, where the Function URL Host header must pass
+    through the Lambda Web Adapter (enabling the guard there 4xxs every request).
+    """
+    if _is_lambda_runtime():
+        return {}
+    return {
+        "host_origin_protection": True,
+        "allowed_hosts": ["127.0.0.1:*", "localhost:*"],
+        "allowed_origins": ["http://127.0.0.1:*", "http://localhost:*"],
+    }
+
+
 if __name__ == "__main__":
     # On Lambda, run.sh starts this process and the Lambda Web Adapter proxies
     # Function URL requests (SigV4-authenticated) to port 8080. Locally, it
@@ -1373,17 +1402,9 @@ if __name__ == "__main__":
     run_kwargs = dict(http_transport_options())
     run_kwargs["host"] = host
     run_kwargs["port"] = port
-
-    # DNS-rebinding guard for LOCAL mode only. The local server has no SigV4
-    # boundary, so a browser on a rebound origin could otherwise reach it and
-    # drive all tools with the developer's default credentials. Validate Host/
-    # Origin against a loopback allowlist. This is gated OFF on Lambda, where
-    # the Lambda Web Adapter passes the Function URL's own Host header through
-    # (enabling it there would 4xx every real request). AWS_LWA_PORT is set by
-    # the adapter and is absent in local runs, so it is the Lambda signal.
-    if "AWS_LWA_PORT" not in os.environ:
-        run_kwargs["host_origin_protection"] = True
-        run_kwargs["allowed_hosts"] = ["127.0.0.1:*", "localhost:*"]
-        run_kwargs["allowed_origins"] = ["http://127.0.0.1:*", "http://localhost:*"]
+    # DNS-rebinding guard for local mode (no-op on the Lambda runtime). Shared
+    # with the tests via local_host_origin_guard() so the guard can't be dropped
+    # from startup without failing a test.
+    run_kwargs.update(local_host_origin_guard())
 
     mcp.run(transport="streamable-http", **run_kwargs)

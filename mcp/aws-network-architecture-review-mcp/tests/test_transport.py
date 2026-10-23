@@ -108,9 +108,7 @@ def local_guarded_url():
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     app = server.mcp.http_app(
-        host_origin_protection=True,
-        allowed_hosts=["127.0.0.1:*", "localhost:*"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
+        **server.local_host_origin_guard(),
         **server.http_transport_options(),
     )
     srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
