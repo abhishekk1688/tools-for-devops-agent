@@ -6,6 +6,22 @@ documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Pinned dependency versions in `layers/dependencies/requirements.txt`
+  (`fastmcp==3.4.11`, `boto3==1.43.118`) instead of version ranges, for
+  reproducible and reviewable builds.
+
+### Security
+
+- `get_dx_cloudwatch_metrics` now clamps the caller-supplied `hours` lookback to
+  a 1-hour..14-day range, bounding the CloudWatch `GetMetricData` window.
+- The method-logging middleware now sanitizes the client-supplied tool name
+  (allowlist of `[A-Za-z0-9_.-]`, max 64 chars) before writing it to logs,
+  preventing log forging via crafted tool names.
+
 ## [1.0.0] — 2026-10-05
 
 Initial release, adapted for AWS DevOps Agent from the stdio sample

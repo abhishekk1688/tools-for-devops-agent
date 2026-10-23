@@ -599,6 +599,10 @@ def get_dx_cloudwatch_metrics(region: str = "us-east-1", connection_id: str = ""
     """
     from datetime import datetime, timedelta, timezone
 
+    # Clamp the caller-supplied lookback to a sane range (1 hour .. 14 days).
+    # Read-only call, but this bounds the CloudWatch GetMetricData window.
+    hours = max(1, min(int(hours), 24 * 14))
+
     dx = get_client("directconnect", region)
     cw = get_client("cloudwatch", region)
 
@@ -1244,7 +1248,12 @@ class _MethodLog(Middleware):
     async def on_message(self, context, call_next):
         tool = ""
         if context.method == "tools/call":
-            tool = f" tool={getattr(context.message, 'name', '?')}"
+            # Sanitize the client-supplied tool name before logging: strip anything
+            # outside a safe allowlist so a crafted name cannot forge log lines
+            # (e.g. embedded newlines) or inject control characters.
+            raw = str(getattr(context.message, "name", "?"))
+            safe = "".join(c for c in raw if c.isalnum() or c in "_-.")[:64] or "?"
+            tool = f" tool={safe}"
         print(f"mcp method={context.method}{tool}", flush=True)
         return await call_next(context)
 
