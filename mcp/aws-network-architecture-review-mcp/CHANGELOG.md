@@ -35,9 +35,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   as instructions (indirect prompt-injection hardening; threat T-006 / M-007).
 - Local mode (`python server.py`, no SigV4 in front of it) now enables FastMCP
   host/origin validation with a loopback allowlist, blocking DNS-rebinding
-  access to the developer's credentials. Gated off on Lambda (detected via the
-  Lambda Web Adapter's `AWS_LWA_PORT`), where the Function URL Host header must
-  pass through (threat T-020 / M-025).
+  access to the developer's credentials. Gated off on the Lambda runtime
+  (detected via `AWS_LAMBDA_FUNCTION_NAME`, which only the runtime sets), where
+  the Function URL Host header must pass through. The guard settings are shared
+  with the test via `local_host_origin_guard()` so they cannot be removed from
+  startup without failing a test (threat T-020 / M-025).
+- All CloudWatch alarm fields returned to the agent are now sanitized too,
+  including `MetricName` and the `ConnectionId` dimension value, which
+  `PutMetricAlarm` accepts as arbitrary strings — so every customer-influenced
+  field returned by the server passes through the sanitizer (T-006 / M-007).
 
 ### Fixed
 
