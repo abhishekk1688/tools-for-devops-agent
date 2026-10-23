@@ -94,3 +94,40 @@ def test_get_stream_is_declined_with_405(base_url):
     # stream instead makes clients reconnect in a tight loop.
     resp = httpx.get(base_url, headers={"Accept": "text/event-stream"}, timeout=10)
     assert resp.status_code == 405
+
+
+# ── Test-N11: local-mode DNS-rebinding guard ────────────────────────────────
+# The local server (python server.py) has no SigV4 boundary. The __main__ path
+# turns on host/origin protection with a loopback allowlist. This builds the
+# same guarded app and checks a foreign Host header is rejected while loopback
+# still works, so a rebound browser origin cannot drive the local tools.
+
+@pytest.fixture(scope="module")
+def local_guarded_url():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    app = server.mcp.http_app(
+        host_origin_protection=True,
+        allowed_hosts=["127.0.0.1:*", "localhost:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
+        **server.http_transport_options(),
+    )
+    srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    thread = threading.Thread(target=srv.run, daemon=True)
+    thread.start()
+    for _ in range(100):
+        if srv.started:
+            break
+        time.sleep(0.05)
+    yield f"http://127.0.0.1:{port}/mcp", port
+    srv.should_exit = True
+    thread.join(timeout=5)
+
+
+def test_local_mode_rejects_foreign_host(local_guarded_url):
+    url, port = local_guarded_url
+    foreign = httpx.post(url, headers={**HEADERS, "Host": "attacker.example"}, json=INIT, timeout=10)
+    assert foreign.status_code in (400, 403, 421), foreign.status_code
+    loopback = httpx.post(url, headers={**HEADERS, "Host": f"127.0.0.1:{port}"}, json=INIT, timeout=10)
+    assert loopback.status_code == 200

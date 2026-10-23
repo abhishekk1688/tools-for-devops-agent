@@ -126,7 +126,7 @@ which invalidates the request signature.
 | Endpoint | `MCPEndpointUrl` output, with `/mcp` appended |
 | Region | The Region the function is deployed in |
 | Service name | `lambda` |
-| IAM role | A role trusting `aidevops.amazonaws.com` with `lambda:InvokeFunctionUrl`, `lambda:InvokeFunction`, and `lambda:InvokeFunctionWithResponseStream` on the function |
+| IAM role | A role trusting `aidevops.amazonaws.com` with `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction` on the function |
 
 > **Use a server name of 35 characters or fewer** (for example
 > `aws-network-architecture-review`). DevOps Agent names each tool
@@ -210,26 +210,19 @@ Attach only the permissions needed to invoke the endpoint:
     "Action": "lambda:InvokeFunction",
     "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:aws-network-architecture-review-mcp-STAGE",
     "Condition": { "Bool": { "lambda:InvokedViaFunctionUrl": "true" } }
-  },
-  {
-    "Effect": "Allow",
-    "Action": "lambda:InvokeFunctionWithResponseStream",
-    "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:aws-network-architecture-review-mcp-STAGE"
   }]
 }
 ```
 
-All three actions are required:
+Both actions are required:
 
 - `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction` — function URLs created
   since October 2025 require both ([Control access to Lambda function
   URLs](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html)). The
   `lambda:InvokedViaFunctionUrl` condition limits `InvokeFunction` to calls made
-  through the function URL.
-- `lambda:InvokeFunctionWithResponseStream` — the Function URL uses
-  `InvokeMode: RESPONSE_STREAM`, and the streaming invoke path is authorized by
-  this separate action. It does not accept the `lambda:FunctionUrlAuthType`
-  condition key, so it is its own statement.
+  through the function URL. The Function URL uses `InvokeMode: RESPONSE_STREAM`,
+  but the streaming invoke path is authorized by `lambda:InvokeFunction` as
+  well — there is no separate `InvokeFunctionWithResponseStream` IAM action.
 
 A missing action surfaces at registration as `403 Forbidden` from the Function
 URL, with no invocation recorded in the function's CloudWatch log group.
@@ -247,10 +240,10 @@ aws iam put-role-policy \
   --policy-document file://invoke-policy.json
 ```
 
-Verify all three actions before registering:
+Verify both actions before registering:
 
 ```bash
-for action in lambda:InvokeFunctionUrl lambda:InvokeFunction lambda:InvokeFunctionWithResponseStream; do
+for action in lambda:InvokeFunctionUrl lambda:InvokeFunction; do
   aws iam simulate-principal-policy \
     --policy-source-arn arn:aws:iam::ACCOUNT_ID:role/DevOpsAgentNetArchReviewMCP-STAGE \
     --action-names "$action" \
@@ -261,7 +254,9 @@ for action in lambda:InvokeFunctionUrl lambda:InvokeFunction lambda:InvokeFuncti
 done
 ```
 
-All three must report `allowed`.
+Both must report `allowed`. Note `simulate-principal-policy` echoes back any
+action string you pass, including ones that are not real IAM actions, so it only
+confirms the policy grants the names you list — not that those names exist.
 
 ### Step 3 — Configure tools in your Agent Space
 
@@ -320,8 +315,12 @@ for `tools/call`, to CloudWatch. Arguments and results are never logged.
   list.
 - **No credentials or secrets.** The server uses its Lambda execution role. It
   stores no data, writes nothing, and makes no calls outside AWS APIs.
-- **Single-account scope.** The server can only see the account it is deployed
-  in. It does not assume roles into other accounts.
+- **Single-account scope.** The server uses only its own execution role and does
+  not assume roles into other accounts. It returns the resources that account can
+  read as owner — so in a hub/network account that owns shared Transit Gateways,
+  Cloud WAN, or DX gateways, the output includes configuration of the spoke
+  accounts attached to them. Deploy it in an account whose operators are allowed
+  to see that data.
 - **Authenticated endpoint.** The Function URL uses `AWS_IAM` auth, so every
   request must be SigV4-signed by a principal allowed to invoke the function.
   Unsigned requests are rejected with `403`.

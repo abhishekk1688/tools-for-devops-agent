@@ -148,7 +148,7 @@ def get_dx_vif_details(region: str = "us-east-1", vif_id: str = "") -> str:
     for v in vifs:
         vifs_detail.append({
             "vif_id": v.get("virtualInterfaceId"),
-            "name": v.get("virtualInterfaceName", ""),
+            "name": _clean_label(v.get("virtualInterfaceName", "")),
             "type": v.get("virtualInterfaceType"),
             "state": v.get("virtualInterfaceState"),
             "connection_id": v.get("connectionId"),
@@ -214,7 +214,7 @@ def get_dx_gateway_details(region: str = "us-east-1", dx_gateway_id: str = "") -
 
         gateways_detail.append({
             "dx_gateway_id": gw_id,
-            "name": gw.get("directConnectGatewayName"),
+            "name": _clean_label(gw.get("directConnectGatewayName")),
             "state": gw.get("directConnectGatewayState"),
             "amazon_side_asn": gw.get("amazonSideAsn"),
             "owner_account": gw.get("ownerAccount"),
@@ -740,7 +740,7 @@ def network_architecture_summary(region: str = "us-east-1") -> str:
         ).get("directConnectGatewayAssociations", [])
         gw_details.append({
             "id": gw_id,
-            "name": gw.get("directConnectGatewayName"),
+            "name": _clean_label(gw.get("directConnectGatewayName")),
             "asn": gw.get("amazonSideAsn"),
             "associations": len(assocs),
             "allowed_prefixes": sum(len(a.get("allowedPrefixesToDirectConnectGateway", [])) for a in assocs),
@@ -957,7 +957,7 @@ def network_architecture_summary(region: str = "us-east-1") -> str:
 def _format_connection(c):
     return {
         "id": c.get("connectionId"),
-        "name": c.get("connectionName", ""),
+        "name": _clean_label(c.get("connectionName", "")),
         "state": c.get("connectionState"),
         "bandwidth": c.get("bandwidth", ""),
         "location": c.get("location", ""),
@@ -971,7 +971,7 @@ def _format_connection(c):
 def _format_vif(v):
     return {
         "id": v.get("virtualInterfaceId"),
-        "name": v.get("virtualInterfaceName", ""),
+        "name": _clean_label(v.get("virtualInterfaceName", "")),
         "type": v.get("virtualInterfaceType"),
         "state": v.get("virtualInterfaceState"),
         "connection_id": v.get("connectionId"),
@@ -988,7 +988,7 @@ def _format_vif(v):
 def _format_gateway(gw):
     return {
         "id": gw.get("directConnectGatewayId"),
-        "name": gw.get("directConnectGatewayName", ""),
+        "name": _clean_label(gw.get("directConnectGatewayName", "")),
         "state": gw.get("directConnectGatewayState"),
         "asn": gw.get("amazonSideAsn"),
     }
@@ -1369,4 +1369,21 @@ if __name__ == "__main__":
 
     host = os.environ.get("MCP_HOST", "127.0.0.1")
     port = int(os.environ.get("AWS_LWA_PORT", "8080"))
-    mcp.run(transport="streamable-http", host=host, port=port, **http_transport_options())
+
+    run_kwargs = dict(http_transport_options())
+    run_kwargs["host"] = host
+    run_kwargs["port"] = port
+
+    # DNS-rebinding guard for LOCAL mode only. The local server has no SigV4
+    # boundary, so a browser on a rebound origin could otherwise reach it and
+    # drive all tools with the developer's default credentials. Validate Host/
+    # Origin against a loopback allowlist. This is gated OFF on Lambda, where
+    # the Lambda Web Adapter passes the Function URL's own Host header through
+    # (enabling it there would 4xx every real request). AWS_LWA_PORT is set by
+    # the adapter and is absent in local runs, so it is the Lambda signal.
+    if "AWS_LWA_PORT" not in os.environ:
+        run_kwargs["host_origin_protection"] = True
+        run_kwargs["allowed_hosts"] = ["127.0.0.1:*", "localhost:*"]
+        run_kwargs["allowed_origins"] = ["http://127.0.0.1:*", "http://localhost:*"]
+
+    mcp.run(transport="streamable-http", **run_kwargs)

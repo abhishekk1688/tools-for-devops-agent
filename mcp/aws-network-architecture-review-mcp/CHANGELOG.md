@@ -28,11 +28,29 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   logs, preventing log forging via crafted tool names.
 - Customer-controlled strings returned to the agent (resource names/tags,
   Cloud WAN descriptions, segment names, VPN tags and tunnel status messages,
-  alarm names, DX partner name) are passed through a sanitizer that strips
-  Unicode control and bidirectional/format characters and caps length, and the
-  FastMCP server instructions now tell the agent that these strings are
-  customer-controlled data and must not be treated as instructions
-  (indirect prompt-injection hardening; threat T-006 / mitigation M-007).
+  alarm names, DX connection/VIF/gateway names, DX partner name) are passed
+  through a sanitizer that strips Unicode control and bidirectional/format
+  characters and caps length, and the FastMCP server instructions now tell the
+  agent that these strings are customer-controlled data and must not be treated
+  as instructions (indirect prompt-injection hardening; threat T-006 / M-007).
+- Local mode (`python server.py`, no SigV4 in front of it) now enables FastMCP
+  host/origin validation with a loopback allowlist, blocking DNS-rebinding
+  access to the developer's credentials. Gated off on Lambda (detected via the
+  Lambda Web Adapter's `AWS_LWA_PORT`), where the Function URL Host header must
+  pass through (threat T-020 / M-025).
+
+### Fixed
+
+- README IAM guidance: removed `lambda:InvokeFunctionWithResponseStream`, which
+  is not a real IAM action — streaming invokes are authorized by
+  `lambda:InvokeFunction`. The required actions are `lambda:InvokeFunctionUrl`
+  and `lambda:InvokeFunction`. (`simulate-principal-policy` echoes any action
+  string, so it had not flagged the non-existent action.)
+- README: clarified the single-account scope note — in a hub/network account the
+  tools also return configuration of spoke accounts attached to shared TGW /
+  Cloud WAN / DX gateways, because the deploying account can read it as owner.
+- Added tests: `_clean_label` sanitization behaviour and output coverage;
+  local-mode rejection of a foreign `Host` header.
 
 ## [1.0.0] — 2026-10-05
 
