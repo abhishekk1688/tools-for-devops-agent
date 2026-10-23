@@ -10,6 +10,11 @@
 # manylinux wheels are fetched regardless of the build host. --only-binary=:all:
 # is required with --platform and makes a missing wheel a loud failure.
 #
+# --upgrade is intentionally NOT used: it would pull newer transitive versions
+# at each build. A fully hash-locked requirements file (pip-compile
+# --generate-hashes, resolved in a python3.12 / manylinux2014_x86_64
+# environment) + --require-hashes is the tracked follow-up; see CHANGELOG.
+#
 # Keep these values in sync with Runtime and Architectures in template.yaml
 # (python3.12 / x86_64).
 
@@ -22,5 +27,4 @@ build-DependenciesLayer:
 		--python-version 3.12 \
 		--implementation cp \
 		--only-binary=:all: \
-		--upgrade \
 		-t "$(ARTIFACTS_DIR)/python"

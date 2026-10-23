@@ -13,14 +13,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Pinned dependency versions in `layers/dependencies/requirements.txt`
   (`fastmcp==3.4.11`, `boto3==1.43.118`) instead of version ranges, for
   reproducible and reviewable builds.
+- Dropped `--upgrade` from the dependencies-layer build (`layers/dependencies/Makefile`)
+  so a build no longer pulls newer transitive versions. A fully hash-locked
+  requirements file (`pip-compile --generate-hashes`, resolved in a
+  python3.12 / manylinux2014_x86_64 environment) with `--require-hashes` is a
+  tracked follow-up (threat T-016 / mitigation M-019).
 
 ### Security
 
 - `get_dx_cloudwatch_metrics` now clamps the caller-supplied `hours` lookback to
   a 1-hour..14-day range, bounding the CloudWatch `GetMetricData` window.
 - The method-logging middleware now sanitizes the client-supplied tool name
-  (allowlist of `[A-Za-z0-9_.-]`, max 64 chars) before writing it to logs,
-  preventing log forging via crafted tool names.
+  (exact ASCII allowlist `[A-Za-z0-9_.-]`, max 64 chars) before writing it to
+  logs, preventing log forging via crafted tool names.
+- Customer-controlled strings returned to the agent (resource names/tags,
+  Cloud WAN descriptions, segment names, VPN tags and tunnel status messages,
+  alarm names, DX partner name) are passed through a sanitizer that strips
+  Unicode control and bidirectional/format characters and caps length, and the
+  FastMCP server instructions now tell the agent that these strings are
+  customer-controlled data and must not be treated as instructions
+  (indirect prompt-injection hardening; threat T-006 / mitigation M-007).
 
 ## [1.0.0] — 2026-10-05
 
