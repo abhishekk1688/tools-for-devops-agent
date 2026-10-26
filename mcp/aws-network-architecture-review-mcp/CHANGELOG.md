@@ -67,6 +67,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (opt-in, recommended in the README); unset deployments keep the residual
   risk. A Lambda resource policy can't express this, because it only supports
   `Allow`.
+- Documented that the `AllowedInvokerRoleArn` check covers the Function URL path
+  only. A principal allowed `lambda:InvokeFunction` on the function without the
+  `lambda:InvokedViaFunctionUrl=true` condition can invoke it directly with a
+  forged event that names the invoker role (confirmed in a test deployment).
+  The README now tells deployers to keep that condition on `lambda:InvokeFunction`
+  for every principal and not to grant `lambda:Invoke*` on `*`; with it, IAM
+  denies the direct invoke (BSC9 / T-004).
+- CI now installs `pyyaml==6.0.3`, and the template tests import it directly
+  instead of skipping when it's missing, so the Function URL auth and
+  reserved-concurrency guards (Test-N01) always run.
 - FastMCP's startup update check, which fetched
   `https://pypi.org/pypi/fastmcp/json` (seen in Lambda logs as an "Update
   available" banner), and the banner are now off: `FASTMCP_CHECK_FOR_UPDATES=off`

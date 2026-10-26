@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import yaml
 from botocore.exceptions import ClientError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -205,8 +206,6 @@ def test_dx_tools_call_describe_connections_once(clients, tool):
 
 def _load_template():
     """Parse template.yaml, keeping CloudFormation short-form tags (!Ref, !Sub...)."""
-    yaml = pytest.importorskip("yaml")
-
     class CfnLoader(yaml.SafeLoader):
         pass
 

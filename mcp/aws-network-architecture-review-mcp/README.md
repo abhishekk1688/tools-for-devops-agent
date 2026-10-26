@@ -107,7 +107,7 @@ sam deploy \
 | --- | --- | --- |
 | `StageName` | `prod` | `dev`, `staging`, or `prod`. Used in the function and layer names. |
 | `ReservedConcurrency` | `0` (unset) | Caps concurrent executions of the function. Set a value such as `10` so a looping agent can't use up the account's Lambda concurrency and shared EC2 / Direct Connect API quotas. `0` means unset, not throttled. Lambda only lets you reserve up to the account's unreserved concurrency minus 100 ([Configuring reserved concurrency](https://docs.aws.amazon.com/lambda/latest/dg/configuration-concurrency.html)), so an account with a low concurrency quota can't set it. |
-| `AllowedInvokerRoleArn` | `''` (off) | **Recommended.** ARN of the role DevOps Agent assumes (created in step 2). When set, the server serves only sessions of that role and returns `403` to every other caller, even ones IAM lets invoke the function. Set it once the role exists (end of step 2). |
+| `AllowedInvokerRoleArn` | `''` (off) | **Recommended.** ARN of the role DevOps Agent assumes (created in step 2). When set, the server serves only sessions of that role and returns `403` to every other caller that comes through the Function URL, even ones IAM lets invoke it. It does not cover direct `lambda:InvokeFunction` calls; see [Scope `lambda:InvokeFunction`](#scope-lambdainvokefunction-for-every-principal). Set it once the role exists (end of step 2). |
 
 `sam build` installs the dependency layer for `manylinux2014_x86_64` /
 Python 3.12 regardless of the build host (see `layers/dependencies/Makefile`),
@@ -294,9 +294,10 @@ sam deploy \
 
 The server then returns `403` to any caller that isn't a session of that role.
 It reads the caller from the identity Lambda verified for the Function URL
-request, so a caller can't claim to be someone else. The setting is opt-in only
-because the role is created after the stack; a deployment that leaves it unset
-keeps the risk described above.
+request, so a caller that comes through the Function URL can't claim to be
+someone else. A direct invoke is different; see the next section. The setting
+is opt-in only because the role is created after the stack; a deployment that
+leaves it unset keeps the risk described above.
 
 With the setting on, expect one `mcp rejected caller not in
 ALLOWED_INVOKER_ROLE_ARN` line, followed by `"GET /mcp HTTP/1.1" 403`, in the
@@ -304,6 +305,24 @@ function's log at every cold start. That's the Lambda Web Adapter's readiness
 probe: it calls `/mcp` from inside the execution environment with no caller
 identity, so the check rejects it. The adapter treats any status below 500 as
 ready, so this is expected and harmless.
+
+#### Scope `lambda:InvokeFunction` for every principal
+
+`AllowedInvokerRoleArn` checks the caller of requests that come through the
+Function URL. It can't check a direct `lambda:InvokeFunction` call: whoever
+invokes the function directly writes the event, including the caller identity
+in it, so they can claim to be the DevOps Agent role. Any principal whose policy
+allows `lambda:InvokeFunction` on this function without the
+`lambda:InvokedViaFunctionUrl` condition can therefore get around the check.
+
+- Keep the `"Bool": { "lambda:InvokedViaFunctionUrl": "true" }` condition on
+  `lambda:InvokeFunction` for the DevOps Agent role, as in the policy above.
+- Don't grant `lambda:InvokeFunction` or `lambda:Invoke*` on `*`, or on this
+  function, to any other principal in the account unless it carries the same
+  condition. Review existing broad grants (for example `AWSLambda_FullAccess`
+  or `*:*` administrator policies) before you rely on the check.
+- With the condition in place, IAM denies a direct invoke with
+  `AccessDeniedException` before the function runs.
 
 ### Step 3 — Configure tools in your Agent Space
 
@@ -376,8 +395,11 @@ for `tools/call`, to CloudWatch. Arguments and results are never logged.
   the account whose policy allows `lambda:InvokeFunctionUrl` on this function
   (or on `*`), and a Lambda resource policy can't deny them, because it only
   supports `Allow`. Setting `AllowedInvokerRoleArn` (recommended; see step 2)
-  makes the server itself return `403` to every caller except the DevOps Agent
-  role. A deployment that leaves it unset keeps this residual risk.
+  makes the server itself return `403` to every Function URL caller except the
+  DevOps Agent role. A deployment that leaves it unset keeps this residual risk.
+  The check doesn't cover direct `lambda:InvokeFunction` calls, so it only holds
+  if no other principal is allowed `lambda:InvokeFunction` on this function
+  without the `lambda:InvokedViaFunctionUrl` condition (see step 2).
 - **Encrypted in transit; nothing stored at rest.** The Function URL accepts
   HTTPS only, and the server calls AWS APIs over TLS. The only plain-HTTP hop is
   the Lambda Web Adapter talking to the server on `127.0.0.1` inside the Lambda

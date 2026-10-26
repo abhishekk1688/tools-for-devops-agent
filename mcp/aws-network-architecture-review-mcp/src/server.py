@@ -1412,6 +1412,14 @@ class _InvokerAllowlist:
     request is served only if Lambda's verified caller is a session of that
     role; everything else, including a missing or ambiguous caller, gets 403.
     When it is empty the check is off and IAM alone decides.
+
+    This check covers the Function URL path only. A principal allowed
+    lambda:InvokeFunction on this function without the condition
+    lambda:InvokedViaFunctionUrl=true can call it directly (Invoke /
+    InvokeWithResponseStream) with a forged Function URL event that names the
+    invoker role, and the server cannot tell that event from a real one (tested
+    2026-10-26). Keeping every principal's lambda:InvokeFunction conditioned on
+    lambda:InvokedViaFunctionUrl=true is what closes that path; see the README.
     """
 
     def __init__(self, app):

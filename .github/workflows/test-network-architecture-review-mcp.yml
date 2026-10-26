@@ -42,7 +42,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install the pinned dependencies
-        run: python3 -I -m pip install -r layers/dependencies/requirements.txt pytest==9.1.1
+        run: python3 -I -m pip install -r layers/dependencies/requirements.txt pytest==9.1.1 pyyaml==6.0.3
 
       - name: Run the tests
         run: python3 -I -m pytest -q tests/
