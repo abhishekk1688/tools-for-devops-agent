@@ -57,6 +57,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Lambda only allows reserving up to the account's unreserved concurrency minus
   100 ([docs](https://docs.aws.amazon.com/lambda/latest/dg/configuration-concurrency.html)),
   so it stays opt-in.
+- New `AllowedInvokerRoleArn` template parameter (default empty = off). When
+  set, an ASGI check serves only sessions of the DevOps Agent invoker role,
+  using the caller identity Lambda verified for the Function URL request
+  (`x-amzn-request-context` from Lambda Web Adapter). It returns `403` to every
+  other caller, including any principal whose IAM policy allows invoke, and
+  fails closed on a missing, duplicated or garbled context or a malformed
+  setting (T-004 / M-005, BSC9). A Lambda resource policy can't express this,
+  because it only supports `Allow`.
 
 ### Added
 

@@ -18,6 +18,7 @@ Transport: Streamable HTTP (via Lambda Web Adapter + Function URL, SigV4 auth).
 """
 
 import json
+import os
 import re
 import unicodedata
 from collections import defaultdict
@@ -1360,6 +1361,74 @@ class _SessionIdHeader:
         await self.app(scope, receive, send_with_header)
 
 
+def _assumed_role_prefix(role_arn):
+    """Map an IAM role ARN to the STS assumed-role ARN prefix its sessions carry.
+
+    arn:aws:iam::111122223333:role/some/path/Name -> arn:aws:sts::111122223333:assumed-role/Name/
+    (assumed-role ARNs drop the role path). The trailing slash stops a role named
+    "Name" from also admitting "NameEvil". Raises ValueError for anything else.
+    """
+    m = re.fullmatch(r"arn:(aws[a-z-]*):iam::(\d{12}):role/(?:[\w+=,.@-]+/)*([\w+=,.@-]+)", role_arn)
+    if not m:
+        raise ValueError("ALLOWED_INVOKER_ROLE_ARN must be an IAM role ARN")
+    partition, account, name = m.groups()
+    return f"arn:{partition}:sts::{account}:assumed-role/{name}/"
+
+
+def _caller_arn(scope):
+    """The SigV4 caller ARN Lambda verified for this request, or None.
+
+    The Function URL (AuthType AWS_IAM) authenticates the request and puts the
+    caller in requestContext.authorizer.iam.userArn. Lambda Web Adapter forwards
+    that context as the x-amzn-request-context header, replacing any header of
+    that name the client sent. Anything other than exactly one header with that
+    field is treated as unknown.
+    """
+    values = [v for k, v in (scope.get("headers") or []) if k.lower() == b"x-amzn-request-context"]
+    if len(values) != 1:
+        return None
+    try:
+        arn = json.loads(values[0])["authorizer"]["iam"]["userArn"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return arn if isinstance(arn, str) else None
+
+
+class _InvokerAllowlist:
+    """ASGI middleware: only the configured invoker role may call the server (T-004).
+
+    Function URL IAM auth admits any principal in the account whose identity
+    policy allows lambda:InvokeFunctionUrl on this function (or on "*"). Lambda
+    resource policies can only Allow, so the template cannot deny other callers;
+    this check does. Set ALLOWED_INVOKER_ROLE_ARN (template parameter
+    AllowedInvokerRoleArn) to the DevOps Agent invoker role. When it is set, a
+    request is served only if Lambda's verified caller is a session of that
+    role; everything else, including a missing or ambiguous caller, gets 403.
+    When it is empty the check is off and IAM alone decides.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        allowed = os.environ.get("ALLOWED_INVOKER_ROLE_ARN", "").strip()
+        if scope["type"] != "http" or not allowed:
+            return await self.app(scope, receive, send)
+        try:
+            prefix = _assumed_role_prefix(allowed)
+        except ValueError:
+            prefix = None  # misconfigured: fail closed
+        caller = _caller_arn(scope)
+        if prefix and caller and caller.startswith(prefix):
+            return await self.app(scope, receive, send)
+        print("mcp rejected caller not in ALLOWED_INVOKER_ROLE_ARN", flush=True)
+        body = b'{"error":"forbidden"}\n'
+        await send({"type": "http.response.start", "status": 403,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body})
+
+
 def http_transport_options():
     """Streamable HTTP options shared by the Lambda entry point and the tests.
 
@@ -1369,7 +1438,9 @@ def http_transport_options():
     """
     from starlette.middleware import Middleware as AsgiMiddleware
 
-    return {"stateless_http": True, "middleware": [AsgiMiddleware(_SessionIdHeader)]}
+    return {"stateless_http": True,
+            # The allowlist runs first, so a rejected caller never reaches the MCP app.
+            "middleware": [AsgiMiddleware(_InvokerAllowlist), AsgiMiddleware(_SessionIdHeader)]}
 
 
 def _is_lambda_runtime():

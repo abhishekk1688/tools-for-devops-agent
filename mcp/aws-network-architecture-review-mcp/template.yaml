@@ -37,6 +37,15 @@ Parameters:
       account's unreserved concurrency minus 100, so the deploy fails if the
       value would leave fewer than 100 unreserved; see
       https://docs.aws.amazon.com/lambda/latest/dg/configuration-concurrency.html
+  AllowedInvokerRoleArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$'
+    Description: >
+      ARN of the IAM role DevOps Agent assumes to call this server. When set,
+      the server answers only requests signed by a session of that role and
+      returns 403 to every other caller, even ones whose IAM policy allows
+      lambda:InvokeFunctionUrl. Empty leaves the check off.
 
 Conditions:
   HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
@@ -72,6 +81,7 @@ Resources:
           # MCP server config
           PYTHONPATH: /opt/python
           STAGE_NAME: !Ref StageName
+          ALLOWED_INVOKER_ROLE_ARN: !Ref AllowedInvokerRoleArn
       Policies:
         # Read-only: exactly the actions server.py calls. Describe/List/Get/Search
         # actions in these services do not support resource-level scoping, so the

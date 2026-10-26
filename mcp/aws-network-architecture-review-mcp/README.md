@@ -107,6 +107,7 @@ sam deploy \
 | --- | --- | --- |
 | `StageName` | `prod` | `dev`, `staging`, or `prod`. Used in the function and layer names. |
 | `ReservedConcurrency` | `0` (unset) | Caps concurrent executions of the function. Set a value such as `10` so a looping agent can't use up the account's Lambda concurrency and shared EC2 / Direct Connect API quotas. `0` means unset, not throttled. Lambda only lets you reserve up to the account's unreserved concurrency minus 100 ([Configuring reserved concurrency](https://docs.aws.amazon.com/lambda/latest/dg/configuration-concurrency.html)), so an account with a low concurrency quota can't set it. |
+| `AllowedInvokerRoleArn` | `''` (off) | ARN of the role DevOps Agent assumes (created in step 2). When set, the server serves only sessions of that role and returns `403` to every other caller, even ones IAM lets invoke the function. Set it once the role exists (end of step 2). |
 
 `sam build` installs the dependency layer for `manylinux2014_x86_64` /
 Python 3.12 regardless of the build host (see `layers/dependencies/Makefile`),
@@ -276,6 +277,22 @@ aws accessanalyzer validate-policy \
 The first command must show both `aws:SourceAccount` and `aws:SourceArn`. The
 second should print nothing (no findings).
 
+Finally, restrict the server to this role. Without this step, any principal in
+the account whose IAM policy allows `lambda:InvokeFunctionUrl` on the function
+(or on `*`) can call it. Redeploy with the role ARN:
+
+```bash
+sam deploy \
+  --stack-name aws-network-architecture-review-mcp-prod \
+  --parameter-overrides StageName=prod \
+    AllowedInvokerRoleArn=arn:aws:iam::ACCOUNT_ID:role/DevOpsAgentNetArchReviewMCP-STAGE \
+  --capabilities CAPABILITY_IAM --resolve-s3 --region <region>
+```
+
+The server then returns `403` to any caller that isn't a session of that role.
+It reads the caller from the identity Lambda verified for the Function URL
+request, so a caller can't claim to be someone else.
+
 ### Step 3 — Configure tools in your Agent Space
 
 1. In the DevOps Agent console, select your Agent Space.
@@ -341,10 +358,11 @@ for `tools/call`, to CloudWatch. Arguments and results are never logged.
   to see that data.
 - **Authenticated endpoint.** The Function URL uses `AWS_IAM` auth, so every
   request must be SigV4-signed by a principal allowed to invoke the function.
-  Unsigned requests are rejected with `403`. IAM is the only check: any
-  principal in the account whose policy allows `lambda:InvokeFunctionUrl` on
-  this function (or on `*`) can call every tool and read what the execution
-  role can read. Keep invoke permission limited to the DevOps Agent role.
+  Unsigned requests are rejected with `403`. IAM alone admits any principal in
+  the account whose policy allows `lambda:InvokeFunctionUrl` on this function
+  (or on `*`), and a Lambda resource policy can't deny them, because it only
+  supports `Allow`. Set `AllowedInvokerRoleArn` so the server itself returns
+  `403` to every caller except the DevOps Agent role.
 - **Encrypted in transit; nothing stored at rest.** The Function URL accepts
   HTTPS only, and the server calls AWS APIs over TLS. The only plain-HTTP hop is
   the Lambda Web Adapter talking to the server on `127.0.0.1` inside the Lambda

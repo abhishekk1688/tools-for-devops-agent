@@ -129,3 +129,66 @@ def test_local_mode_rejects_foreign_host(local_guarded_url):
     assert foreign.status_code in (400, 403, 421), foreign.status_code
     loopback = httpx.post(url, headers={**HEADERS, "Host": f"127.0.0.1:{port}"}, json=INIT, timeout=10)
     assert loopback.status_code == 200
+
+
+# ── Test-N13: invoker-role allowlist (T-004 / M-005) ────────────────────────
+# With ALLOWED_INVOKER_ROLE_ARN set, only a session of that role (as reported in
+# the Lambda Web Adapter's x-amzn-request-context header) is served. Every other
+# caller, and any request whose caller is missing or ambiguous, gets 403.
+
+ROLE = "arn:aws:iam::111122223333:role/service-role/DevOpsAgentNetArchReviewMCP-prod"
+AGENT = "arn:aws:sts::111122223333:assumed-role/DevOpsAgentNetArchReviewMCP-prod/aidevops-session"
+
+
+def _ctx(user_arn):
+    return json.dumps({"authorizer": {"iam": {"userArn": user_arn}}})
+
+
+@pytest.fixture
+def allowlisted(base_url, monkeypatch):
+    monkeypatch.setenv("ALLOWED_INVOKER_ROLE_ARN", ROLE)
+    return base_url
+
+
+def test_allowlisted_role_session_is_served(allowlisted):
+    resp = httpx.post(allowlisted, headers={**HEADERS, "x-amzn-request-context": _ctx(AGENT)},
+                      json=INIT, timeout=10)
+    assert resp.status_code == 200
+
+
+@pytest.mark.parametrize("caller", [
+    "arn:aws:iam::111122223333:user/someone-with-invoke-on-star",
+    "arn:aws:sts::111122223333:assumed-role/OtherRole/session",
+    "arn:aws:sts::111122223333:assumed-role/DevOpsAgentNetArchReviewMCP-prodEvil/s",
+    "arn:aws:sts::444455556666:assumed-role/DevOpsAgentNetArchReviewMCP-prod/s",
+])
+def test_other_callers_are_rejected(allowlisted, caller):
+    resp = httpx.post(allowlisted, headers={**HEADERS, "x-amzn-request-context": _ctx(caller)},
+                      json=INIT, timeout=10)
+    assert resp.status_code == 403
+
+
+def test_missing_or_garbled_caller_is_rejected(allowlisted):
+    assert httpx.post(allowlisted, headers=HEADERS, json=INIT, timeout=10).status_code == 403
+    garbled = httpx.post(allowlisted, headers={**HEADERS, "x-amzn-request-context": "not json"},
+                         json=INIT, timeout=10)
+    assert garbled.status_code == 403
+
+
+def test_duplicate_context_header_is_rejected(allowlisted):
+    # Two context headers is ambiguous (one could be client-supplied): fail closed.
+    headers = list(HEADERS.items()) + [("x-amzn-request-context", _ctx(AGENT))] * 2
+    resp = httpx.post(allowlisted, headers=headers, json=INIT, timeout=10)
+    assert resp.status_code == 403
+
+
+def test_misconfigured_allowlist_fails_closed(base_url, monkeypatch):
+    monkeypatch.setenv("ALLOWED_INVOKER_ROLE_ARN", "not-an-arn")
+    resp = httpx.post(base_url, headers={**HEADERS, "x-amzn-request-context": _ctx(AGENT)},
+                      json=INIT, timeout=10)
+    assert resp.status_code == 403
+
+
+def test_allowlist_off_when_unset(base_url, monkeypatch):
+    monkeypatch.delenv("ALLOWED_INVOKER_ROLE_ARN", raising=False)
+    assert httpx.post(base_url, headers=HEADERS, json=INIT, timeout=10).status_code == 200
