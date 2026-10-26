@@ -67,6 +67,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (opt-in, recommended in the README); unset deployments keep the residual
   risk. A Lambda resource policy can't express this, because it only supports
   `Allow`.
+- FastMCP's startup update check, which fetched
+  `https://pypi.org/pypi/fastmcp/json` (seen in Lambda logs as an "Update
+  available" banner), and the banner are now off: `FASTMCP_CHECK_FOR_UPDATES=off`
+  and `FASTMCP_SHOW_SERVER_BANNER=false` in `template.yaml`, with the same
+  defaults set in `server.py` before FastMCP is imported. The server's only
+  outbound calls are now AWS APIs (BSC22). A test asserts both settings and that
+  the update check makes no network call.
 
 ### Added
 

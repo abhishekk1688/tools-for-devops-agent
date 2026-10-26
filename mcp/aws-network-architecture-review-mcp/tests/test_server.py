@@ -260,3 +260,23 @@ def test_unhandled_errors_are_masked_and_clients_back_off(monkeypatch):
     assert result.is_error
     assert "SECRET-INTERNAL" not in text and "Traceback" not in text and "/var/task" not in text
     assert server.BOTO_CONFIG.retries == {"mode": "standard", "max_attempts": 3}
+
+
+def test_no_pypi_update_check_or_banner(monkeypatch):
+    """FastMCP must not call pypi.org at startup: update check and banner are off."""
+    import fastmcp
+    from fastmcp.utilities import version_check
+
+    env = _load_template()["Resources"]["NetworkArchitectureReviewMCPFunction"]["Properties"][
+        "Environment"]["Variables"]
+    assert env["FASTMCP_CHECK_FOR_UPDATES"] == "off"
+    assert env["FASTMCP_SHOW_SERVER_BANNER"] == "false"
+    # server.py sets the same defaults before importing fastmcp (covers local mode).
+    assert fastmcp.settings.check_for_updates == "off"
+    assert fastmcp.settings.show_server_banner is False
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("update check tried to reach pypi.org")
+
+    monkeypatch.setattr(version_check, "get_latest_version", no_network)
+    assert version_check.check_for_newer_version() is None

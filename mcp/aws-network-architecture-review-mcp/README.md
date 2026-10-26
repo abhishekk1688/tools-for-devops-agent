@@ -298,6 +298,13 @@ request, so a caller can't claim to be someone else. The setting is opt-in only
 because the role is created after the stack; a deployment that leaves it unset
 keeps the risk described above.
 
+With the setting on, expect one `mcp rejected caller not in
+ALLOWED_INVOKER_ROLE_ARN` line, followed by `"GET /mcp HTTP/1.1" 403`, in the
+function's log at every cold start. That's the Lambda Web Adapter's readiness
+probe: it calls `/mcp` from inside the execution environment with no caller
+identity, so the check rejects it. The adapter treats any status below 500 as
+ready, so this is expected and harmless.
+
 ### Step 3 — Configure tools in your Agent Space
 
 1. In the DevOps Agent console, select your Agent Space.
@@ -354,7 +361,9 @@ for `tools/call`, to CloudWatch. Arguments and results are never logged.
   resource-level scoping, so the resource is `*`; the boundary is the action
   list.
 - **No credentials or secrets.** The server uses its Lambda execution role. It
-  stores no data, writes nothing, and makes no calls outside AWS APIs.
+  stores no data, writes nothing, and makes no calls outside AWS APIs. FastMCP's
+  startup update check (a request to `pypi.org`) and banner are turned off, in
+  `template.yaml` and in `server.py` for local runs.
 - **Single-account scope.** The server uses only its own execution role and does
   not assume roles into other accounts. It returns the resources that account can
   read as owner — so in a hub/network account that owns shared Transit Gateways,

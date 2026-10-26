@@ -23,9 +23,16 @@ import re
 import unicodedata
 from collections import defaultdict
 
-import boto3
-from botocore.config import Config
-from fastmcp import FastMCP
+# FastMCP checks pypi.org for a newer release when it prints its startup banner,
+# which would be the server's only non-AWS outbound connection. Turn both off
+# before fastmcp is imported (its settings are read at import time). The
+# template sets the same values; setdefault keeps an explicit override possible.
+os.environ.setdefault("FASTMCP_CHECK_FOR_UPDATES", "off")
+os.environ.setdefault("FASTMCP_SHOW_SERVER_BANNER", "false")
+
+import boto3  # noqa: E402
+from botocore.config import Config  # noqa: E402
+from fastmcp import FastMCP  # noqa: E402
 
 # Standard retry mode backs off on throttling instead of amplifying it, so a
 # looping agent can't turn AWS API throttles into a retry storm against the

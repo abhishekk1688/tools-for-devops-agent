@@ -82,6 +82,10 @@ Resources:
           PYTHONPATH: /opt/python
           STAGE_NAME: !Ref StageName
           ALLOWED_INVOKER_ROLE_ARN: !Ref AllowedInvokerRoleArn
+          # No pypi.org update check or banner at startup: the server's only
+          # outbound calls are AWS APIs.
+          FASTMCP_CHECK_FOR_UPDATES: "off"
+          FASTMCP_SHOW_SERVER_BANNER: "false"
       Policies:
         # Read-only: exactly the actions server.py calls. Describe/List/Get/Search
         # actions in these services do not support resource-level scoping, so the
