@@ -18,6 +18,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   requirements file (`pip-compile --generate-hashes`, resolved in a
   python3.12 / manylinux2014_x86_64 environment) with `--require-hashes` is a
   tracked follow-up (threat T-016 / mitigation M-019).
+- Added `THIRD-PARTY-LICENSES.md`, listing the Lambda Web Adapter layer and the
+  73 Python packages the dependencies layer resolves to, with their licenses
+  (BSC22).
+
+### Known limitations (tracked follow-ups)
+
+- **Pagination (T-014 / M-016).** Most list and describe calls read the first
+  page only. Truncated results are flagged (see Security) but not completed.
+- **Hash-locked dependencies (T-016 / M-019).** Direct dependencies are pinned;
+  transitive dependencies are not yet locked with hashes.
+- **FastMCP 3.x.** The server pins `fastmcp==3.4.11`, the latest 3.x release
+  (2026-10-20). FastMCP's security policy lists both 3.x and 4.x as supported
+  ([SECURITY.md](https://github.com/PrefectHQ/fastmcp/blob/main/SECURITY.md));
+  moving to 4.x is a follow-up, to be re-tested before release.
 
 ### Security
 
@@ -74,6 +88,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   The README now tells deployers to keep that condition on `lambda:InvokeFunction`
   for every principal and not to grant `lambda:Invoke*` on `*`; with it, IAM
   denies the direct invoke (BSC9 / T-004).
+- Tool results now carry `"truncated": true` and `truncated_sources` when an
+  AWS response says more data exists (`NextToken`, or `AdditionalRoutesAvailable`
+  from `SearchTransitGatewayRoutes`) and that data wasn't read. The server's
+  instructions tell the agent to report such results as incomplete rather than
+  treating missing items as absent (T-014). Tests cover a first-page-only call,
+  `AdditionalRoutesAvailable`, and a fully paginated call that is not flagged.
+- A test now checks that the README's invoker-role trust policy keeps the
+  confused-deputy conditions: `aidevops.amazonaws.com` principal,
+  `aws:SourceAccount`, and `aws:SourceArn` scoped to `service/*` (BSC6 /
+  T-002, T-003).
 - CI now installs `pyyaml==6.0.3`, and the template tests import it directly
   instead of skipping when it's missing, so the Function URL auth and
   reserved-concurrency guards (Test-N01) always run.

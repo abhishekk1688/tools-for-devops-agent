@@ -67,6 +67,14 @@ field. For CloudWatch alarms, `missing_recommended` is `null` in that case
 rather than reporting every recommended alarm as missing. The server's
 instructions tell the agent to report these as unavailable, not as findings.
 
+Most tools read only the first page of each AWS list or describe call. When AWS
+says more data exists (a `NextToken`, or `AdditionalRoutesAvailable` from
+`SearchTransitGatewayRoutes`), the result carries `"truncated": true` and
+`truncated_sources` naming the calls that were cut off, and the server's
+instructions tell the agent to report the result as incomplete. In a large
+estate, a truncated result may be missing gateways, attachments, or routes.
+Full pagination is a tracked follow-up (see CHANGELOG).
+
 ---
 
 ## Prerequisites
@@ -454,7 +462,8 @@ aws-network-architecture-review-mcp/
 │   └── network-lab.yaml   # optional test network (see Test infrastructure)
 ├── template.yaml          # SAM: Lambda + Function URL (AWS_IAM) + layer
 ├── README.md
-└── CHANGELOG.md
+├── CHANGELOG.md
+└── THIRD-PARTY-LICENSES.md # licenses of the layer and its dependencies
 ```
 
 ## Test
@@ -538,4 +547,5 @@ Also deregister the MCP server from DevOps Agent Capability Providers.
 ## License
 
 This library is licensed under the Apache-2.0 License. See the
-[LICENSE](../../LICENSE) file.
+[LICENSE](../../LICENSE) file. Third-party components in the deployed function
+and their licenses are listed in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).

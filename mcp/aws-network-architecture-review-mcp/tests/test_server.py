@@ -279,3 +279,92 @@ def test_no_pypi_update_check_or_banner(monkeypatch):
 
     monkeypatch.setattr(version_check, "get_latest_version", no_network)
     assert version_check.check_for_newer_version() is None
+
+
+# ─── Truncated results are reported, not presented as complete (T-014) ──────
+
+
+@pytest.fixture
+def stubbed(monkeypatch):
+    """Real boto3 clients (so the truncation hooks run) backed by botocore Stubbers."""
+    import boto3
+    from botocore.stub import Stubber
+
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    real_client = boto3.client
+    stubs = {}
+
+    def make(service, **kwargs):
+        client = real_client(service, **kwargs)
+        stubs[service] = Stubber(client)
+        stubs[service].activate()
+        return client
+
+    monkeypatch.setattr(server.boto3, "client", make)
+    return stubs
+
+
+def _run(stubs, monkeypatch, tool, calls, **kwargs):
+    """Call a tool with (operation, response) pairs queued on its client's Stubber."""
+    orig = server.get_client
+
+    def get(svc, region="us-east-1"):
+        client = orig(svc, region)
+        for op, response in calls:
+            stubs[svc].add_response(op, response)
+        return client
+
+    monkeypatch.setattr(server, "get_client", get)
+    out = json.loads(getattr(server, tool)("us-east-1", **kwargs))
+    for stub in stubs.values():
+        stub.assert_no_pending_responses()
+    return out
+
+
+def test_first_page_only_result_is_flagged_truncated(stubbed, monkeypatch):
+    out = _run(stubbed, monkeypatch, "analyze_tgw_topology", [
+        ("describe_transit_gateways", {"TransitGateways": [{"TransitGatewayId": "tgw-1"}], "NextToken": "more"}),
+        ("describe_transit_gateway_attachments", {"TransitGatewayAttachments": []}),
+        ("describe_transit_gateway_route_tables", {"TransitGatewayRouteTables": []}),
+    ])
+    assert out["truncated"] is True
+    assert out["truncated_sources"] == ["ec2:DescribeTransitGateways"]
+
+
+def test_additional_routes_available_is_flagged_truncated(stubbed, monkeypatch):
+    out = _run(stubbed, monkeypatch, "get_tgw_route_table_details", [
+        ("describe_transit_gateway_route_tables", {"TransitGatewayRouteTables": [
+            {"TransitGatewayRouteTableId": "tgw-rtb-1", "TransitGatewayId": "tgw-1"}]}),
+        ("get_transit_gateway_route_table_associations", {"Associations": []}),
+        ("get_transit_gateway_route_table_propagations", {"TransitGatewayRouteTablePropagations": []}),
+        ("search_transit_gateway_routes", {"Routes": [], "AdditionalRoutesAvailable": True}),
+    ], tgw_id="tgw-1")
+    assert out["truncated"] is True
+    assert out["truncated_sources"] == ["ec2:SearchTransitGatewayRoutes"]
+
+
+def test_fully_paginated_result_is_not_flagged(stubbed, monkeypatch):
+    out = _run(stubbed, monkeypatch, "get_vpc_endpoints", [
+        ("describe_vpc_endpoints", {"VpcEndpoints": [], "NextToken": "page2"}),
+        ("describe_vpc_endpoints", {"VpcEndpoints": []}),
+    ])
+    assert "truncated" not in out
+
+
+# ─── Invoker-role trust policy keeps confused-deputy conditions (BSC6) ──────
+
+
+def test_readme_trust_policy_has_confused_deputy_conditions():
+    """The documented invoker-role trust policy must stay scoped (T-002 / T-003, M-002)."""
+    readme = (ROOT / "README.md").read_text()
+    blocks = [json.loads(b) for b in re.findall(r"```json\n(.*?)```", readme, re.S)]
+    trust = [b for b in blocks if any(s.get("Action") == "sts:AssumeRole" for s in b["Statement"])]
+    assert len(trust) == 1, "expected exactly one trust policy in the README"
+    (stmt,) = trust[0]["Statement"]
+    assert stmt["Effect"] == "Allow"
+    assert stmt["Principal"] == {"Service": "aidevops.amazonaws.com"}
+    assert stmt["Condition"]["StringEquals"] == {"aws:SourceAccount": "ACCOUNT_ID"}
+    assert stmt["Condition"]["ArnLike"] == {
+        "aws:SourceArn": "arn:aws:aidevops:REGION:ACCOUNT_ID:service/*"}
