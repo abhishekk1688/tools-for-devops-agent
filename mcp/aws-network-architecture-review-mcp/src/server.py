@@ -23,10 +23,21 @@ import unicodedata
 from collections import defaultdict
 
 import boto3
+from botocore.config import Config
 from fastmcp import FastMCP
+
+# Standard retry mode backs off on throttling instead of amplifying it, so a
+# looping agent can't turn AWS API throttles into a retry storm against the
+# account's shared quotas.
+BOTO_CONFIG = Config(retries={"mode": "standard", "max_attempts": 3})
 
 mcp = FastMCP(
     "aws-network-architecture-review-mcp",
+    # Unhandled exceptions return a generic error to the client instead of the
+    # exception text or traceback. Handled AWS API errors still return the SDK
+    # message to the authorized caller in 'error' / 'data_errors' (T-009,
+    # residual low risk, accepted).
+    mask_error_details=True,
     instructions=(
         "Read-only AWS hybrid network architecture review. For Direct Connect, "
         "Transit Gateway, Site-to-Site VPN, Cloud WAN, and VPC endpoint questions, "
@@ -49,7 +60,7 @@ mcp = FastMCP(
 
 def get_client(service: str, region: str = "us-east-1"):
     """Get a boto3 client for the specified service and region."""
-    return boto3.client(service, region_name=region)
+    return boto3.client(service, region_name=region, config=BOTO_CONFIG)
 
 
 

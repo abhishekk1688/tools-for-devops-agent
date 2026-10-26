@@ -25,6 +25,21 @@ Parameters:
     Type: String
     Default: prod
     AllowedValues: [dev, staging, prod]
+  ReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: >
+      Maximum concurrent executions reserved for (and capped at) this function.
+      0 leaves it unset (it does not throttle the function to zero). Set a value
+      such as 10 to stop a looping agent from using up the account's Lambda
+      concurrency and shared API quotas. Lambda only lets you reserve up to the
+      account's unreserved concurrency minus 100, so the deploy fails if the
+      value would leave fewer than 100 unreserved; see
+      https://docs.aws.amazon.com/lambda/latest/dg/configuration-concurrency.html
+
+Conditions:
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
 
 Resources:
   # ============================================================
@@ -39,6 +54,7 @@ Resources:
       Description: Network Architecture Review MCP Server - Streamable HTTP via Lambda Web Adapter
       Architectures:
         - x86_64
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref AWS::NoValue]
       Layers:
         # Lambda Web Adapter layer
         - !Sub arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerX86:24

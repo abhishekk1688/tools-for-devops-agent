@@ -44,9 +44,34 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   including `MetricName` and the `ConnectionId` dimension value, which
   `PutMetricAlarm` accepts as arbitrary strings — so every customer-influenced
   field returned by the server passes through the sanitizer (T-006 / M-007).
+- Unhandled exceptions are masked: an unhandled tool exception now returns a
+  generic error to the client (`mask_error_details=True`) instead of the
+  exception text or traceback (BSC15). Handled AWS API errors still return the
+  SDK error message to the authorized caller in `error` / `data_errors`;
+  residual low risk, accepted (T-009).
+- boto3 clients use standard retry mode (3 attempts), so throttling backs off
+  instead of amplifying (T-013 / M-015).
+- New `ReservedConcurrency` template parameter (default `0` = unset) caps the
+  function's concurrent executions, so a looping agent can't use up the
+  account's Lambda concurrency and shared API quotas (BSC21 / T-013 / M-015).
+  Lambda only allows reserving up to the account's unreserved concurrency minus
+  100 ([docs](https://docs.aws.amazon.com/lambda/latest/dg/configuration-concurrency.html)),
+  so it stays opt-in.
+
+### Added
+
+- Tests: the Function URL stays `AWS_IAM` and nothing in the template grants
+  public invoke (Test-N01); `ReservedConcurrency` is wired to the function;
+  unhandled errors are masked.
+- README: a trust-policy check (`get-role` + `accessanalyzer validate-policy`)
+  confirming both confused-deputy conditions are present (M-004); an
+  encryption-in-transit / at-rest note; a note that IAM invoke permission is the
+  only access check (T-004).
 
 ### Fixed
 
+- README no longer says customer-controlled values are returned "unchanged"; it
+  now describes the sanitization.
 - README IAM guidance: removed `lambda:InvokeFunctionWithResponseStream`, which
   is not a real IAM action — streaming invokes are authorized by
   `lambda:InvokeFunction`. The required actions are `lambda:InvokeFunctionUrl`

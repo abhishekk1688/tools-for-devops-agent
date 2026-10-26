@@ -198,3 +198,65 @@ def test_vif_details_reads_camelcase_directconnect_fields(clients):
 def test_dx_tools_call_describe_connections_once(clients, tool):
     getattr(server, tool)("us-east-1")
     assert clients["directconnect"].describe_connections.call_count == 1
+
+
+# ─── Template guards (Test-N01) ──────────────────────────────────────────────
+
+
+def _load_template():
+    """Parse template.yaml, keeping CloudFormation short-form tags (!Ref, !Sub...)."""
+    yaml = pytest.importorskip("yaml")
+
+    class CfnLoader(yaml.SafeLoader):
+        pass
+
+    def _tag(loader, suffix, node):
+        if isinstance(node, yaml.ScalarNode):
+            value = loader.construct_scalar(node)
+        elif isinstance(node, yaml.SequenceNode):
+            value = loader.construct_sequence(node, deep=True)
+        else:
+            value = loader.construct_mapping(node, deep=True)
+        return {f"!{suffix}": value}
+
+    CfnLoader.add_multi_constructor("!", _tag)
+    return yaml.load((ROOT / "template.yaml").read_text(), Loader=CfnLoader)
+
+
+def test_function_url_requires_iam_auth_and_nothing_is_public():
+    """The Function URL must stay AWS_IAM (SigV4), and no resource may grant public invoke."""
+    resources = _load_template()["Resources"]
+    fn = resources["NetworkArchitectureReviewMCPFunction"]["Properties"]
+    assert fn["FunctionUrlConfig"]["AuthType"] == "AWS_IAM"
+    for name, resource in resources.items():
+        assert resource["Type"] not in {"AWS::Lambda::Permission", "AWS::Lambda::Url",
+                                        "AWS::Lambda::LayerVersionPermission"}, name
+        assert "'*'" not in repr(resource.get("Properties", {}).get("Principal")), name
+    assert "AuthType: NONE" not in (ROOT / "template.yaml").read_text()
+
+
+def test_reserved_concurrency_is_wired_to_the_function():
+    template = _load_template()
+    assert template["Parameters"]["ReservedConcurrency"]["Type"] == "Number"
+    fn = template["Resources"]["NetworkArchitectureReviewMCPFunction"]["Properties"]
+    assert "ReservedConcurrentExecutions" in fn
+
+
+def test_unhandled_errors_are_masked_and_clients_back_off(monkeypatch):
+    """Unhandled tool exceptions must not return internals; boto3 uses standard retries."""
+    from fastmcp import Client
+
+    failing = MagicMock()
+    failing.describe_connections.side_effect = RuntimeError("SECRET-INTERNAL /var/task/server.py")
+    monkeypatch.setattr(server, "get_client", lambda *a, **k: failing)
+
+    async def call():
+        async with Client(server.mcp) as client:
+            return await client.call_tool("analyze_dx_topology", {"region": "us-east-1"},
+                                          raise_on_error=False)
+
+    result = asyncio.run(call())
+    text = " ".join(getattr(c, "text", "") for c in result.content)
+    assert result.is_error
+    assert "SECRET-INTERNAL" not in text and "Traceback" not in text and "/var/task" not in text
+    assert server.BOTO_CONFIG.retries == {"mode": "standard", "max_attempts": 3}

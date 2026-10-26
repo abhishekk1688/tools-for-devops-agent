@@ -106,6 +106,7 @@ sam deploy \
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `StageName` | `prod` | `dev`, `staging`, or `prod`. Used in the function and layer names. |
+| `ReservedConcurrency` | `0` (unset) | Caps concurrent executions of the function. Set a value such as `10` so a looping agent can't use up the account's Lambda concurrency and shared EC2 / Direct Connect API quotas. `0` means unset, not throttled. Lambda only lets you reserve up to the account's unreserved concurrency minus 100 ([Configuring reserved concurrency](https://docs.aws.amazon.com/lambda/latest/dg/configuration-concurrency.html)), so an account with a low concurrency quota can't set it. |
 
 `sam build` installs the dependency layer for `manylinux2014_x86_64` /
 Python 3.12 regardless of the build host (see `layers/dependencies/Makefile`),
@@ -258,6 +259,23 @@ Both must report `allowed`. Note `simulate-principal-policy` echoes back any
 action string you pass, including ones that are not real IAM actions, so it only
 confirms the policy grants the names you list — not that those names exist.
 
+Then confirm the trust policy still carries both confused-deputy conditions.
+Without them, another account's DevOps Agent could assume this role:
+
+```bash
+aws iam get-role \
+  --role-name DevOpsAgentNetArchReviewMCP-STAGE \
+  --query 'Role.AssumeRolePolicyDocument.Statement[].Condition'
+aws accessanalyzer validate-policy \
+  --policy-type RESOURCE_POLICY \
+  --validate-policy-resource-type AWS::IAM::AssumeRolePolicyDocument \
+  --policy-document file://trust-policy.json \
+  --query 'findings[].[findingType,issueCode]' --output text
+```
+
+The first command must show both `aws:SourceAccount` and `aws:SourceArn`. The
+second should print nothing (no findings).
+
 ### Step 3 — Configure tools in your Agent Space
 
 1. In the DevOps Agent console, select your Agent Space.
@@ -323,14 +341,29 @@ for `tools/call`, to CloudWatch. Arguments and results are never logged.
   to see that data.
 - **Authenticated endpoint.** The Function URL uses `AWS_IAM` auth, so every
   request must be SigV4-signed by a principal allowed to invoke the function.
-  Unsigned requests are rejected with `403`.
+  Unsigned requests are rejected with `403`. IAM is the only check: any
+  principal in the account whose policy allows `lambda:InvokeFunctionUrl` on
+  this function (or on `*`) can call every tool and read what the execution
+  role can read. Keep invoke permission limited to the DevOps Agent role.
+- **Encrypted in transit; nothing stored at rest.** The Function URL accepts
+  HTTPS only, and the server calls AWS APIs over TLS. The only plain-HTTP hop is
+  the Lambda Web Adapter talking to the server on `127.0.0.1` inside the Lambda
+  execution environment. The server stores no data; the only thing written is
+  one CloudWatch Logs line per request (method and tool name), which CloudWatch
+  encrypts at rest.
 - **Structured parameters only.** Tools accept a Region and, where relevant, a
   resource ID or lookback window. No tool accepts arbitrary API names or
   queries.
 - **Returned data is untrusted.** Tool output includes values set by whoever
   manages the account, such as resource names, tags, and descriptions. The
-  server returns them unchanged; the agent should treat them as data, never as
-  instructions.
+  server strips control and bidirectional characters from them and caps their
+  length, but otherwise returns their content; the agent should treat them as
+  data, never as instructions.
+- **Unhandled exceptions are masked.** An unhandled exception returns a generic
+  error to the caller (`mask_error_details`), with no exception text or
+  traceback. AWS API errors the tools handle still return the SDK error message
+  in an `error` or `data_errors` field to the caller, who is already
+  SigV4-authorized in the same account. That residual risk is low and accepted.
 - **Local runs bind loopback.** Running `server.py` directly listens on
   `127.0.0.1`, because that path has no SigV4 boundary in front of it.
 
