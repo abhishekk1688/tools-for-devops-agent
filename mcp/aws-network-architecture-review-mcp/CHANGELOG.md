@@ -63,6 +63,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Tests: the Function URL stays `AWS_IAM` and nothing in the template grants
   public invoke (Test-N01); `ReservedConcurrency` is wired to the function;
   unhandled errors are masked.
+- CI: `.github/workflows/test-network-architecture-review-mcp.yml` runs these
+  tests on every pull request (M-021). It blocks merges once an admin makes it a
+  required status check.
 - README: a trust-policy check (`get-role` + `accessanalyzer validate-policy`)
   confirming both confused-deputy conditions are present (M-004); an
   encryption-in-transit / at-rest note; a note that IAM invoke permission is the
