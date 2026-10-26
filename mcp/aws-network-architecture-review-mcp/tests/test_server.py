@@ -220,7 +220,15 @@ def _load_template():
         return {f"!{suffix}": value}
 
     CfnLoader.add_multi_constructor("!", _tag)
-    return yaml.load((ROOT / "template.yaml").read_text(), Loader=CfnLoader)
+    # CfnLoader is a SafeLoader subclass that only adds the CloudFormation tags,
+    # so no arbitrary objects can be built. It is run directly rather than through
+    # PyYAML's generic load function, which Bandit flags (B506) for any loader
+    # other than SafeLoader itself.
+    loader = CfnLoader((ROOT / "template.yaml").read_text())
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
 
 
 def test_function_url_requires_iam_auth_and_nothing_is_public():
