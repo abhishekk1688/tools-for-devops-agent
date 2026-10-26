@@ -63,8 +63,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (`x-amzn-request-context` from Lambda Web Adapter). It returns `403` to every
   other caller, including any principal whose IAM policy allows invoke, and
   fails closed on a missing, duplicated or garbled context or a malformed
-  setting (T-004 / M-005, BSC9). A Lambda resource policy can't express this,
-  because it only supports `Allow`.
+  setting (BSC9). T-004 is mitigated when `AllowedInvokerRoleArn` is set
+  (opt-in, recommended in the README); unset deployments keep the residual
+  risk. A Lambda resource policy can't express this, because it only supports
+  `Allow`.
 
 ### Added
 
