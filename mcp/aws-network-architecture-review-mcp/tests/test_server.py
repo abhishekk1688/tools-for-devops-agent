@@ -7,6 +7,7 @@ import asyncio
 import json
 import re
 import sys
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -368,3 +369,30 @@ def test_readme_trust_policy_has_confused_deputy_conditions():
     assert stmt["Condition"]["StringEquals"] == {"aws:SourceAccount": "ACCOUNT_ID"}
     assert stmt["Condition"]["ArnLike"] == {
         "aws:SourceArn": "arn:aws:aidevops:REGION:ACCOUNT_ID:service/*"}
+
+
+# ─── VPN pre-shared keys are never returned (Test-N03, T-008) ───────────────
+
+
+def test_vpn_pre_shared_key_is_never_returned(clients):
+    psk = "s3cr3t-PSK-value"
+    clients["ec2"].describe_vpn_connections.return_value = {"VpnConnections": [{
+        "VpnConnectionId": "vpn-1", "State": "available", "Type": "ipsec.1",
+        "CustomerGatewayConfiguration": f"<vpn_connection><pre_shared_key>{psk}</pre_shared_key></vpn_connection>",
+        "Options": {"TunnelOptions": [{"OutsideIpAddress": "203.0.113.1", "PreSharedKey": psk}]},
+        "VgwTelemetry": [{"OutsideIpAddress": "203.0.113.1", "Status": "UP"}],
+    }]}
+    for tool in ("get_vpn_details", "network_architecture_summary"):
+        out = getattr(server, tool)("us-east-1")
+        assert psk not in out, tool
+        assert "pre_shared_key" not in out.lower() and "presharedkey" not in out.lower(), tool
+
+
+# ─── The CloudWatch lookback is clamped (Test-N08) ──────────────────────────
+
+
+@pytest.mark.parametrize("hours, expected", [(-5, 1), (0, 1), (3, 3), (10**9, 336)])
+def test_metrics_lookback_is_clamped(clients, hours, expected):
+    server.get_dx_cloudwatch_metrics("us-east-1", "dxcon-test1", hours)
+    kwargs = clients["cloudwatch"].get_metric_data.call_args.kwargs
+    assert kwargs["EndTime"] - kwargs["StartTime"] == timedelta(hours=expected)

@@ -94,6 +94,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   instructions tell the agent to report such results as incomplete rather than
   treating missing items as absent (T-014). Tests cover a first-page-only call,
   `AdditionalRoutesAvailable`, and a fully paginated call that is not flagged.
+- The PR workflow now runs `pip-audit` (pinned 2.10.1) on
+  `layers/dependencies/requirements.txt` and fails on any known vulnerability
+  in the resolved dependency set (BSC37).
+- Tests now check that a VPN pre-shared key never appears in `get_vpn_details`
+  or `network_architecture_summary` output (Test-N03, T-008), and that the
+  `hours` lookback is clamped to 1 hour–14 days (Test-N08).
+- The README Security Model now has a denial-of-service summary, and no longer
+  says the read actions don't support resource-level permissions (BSC21, BSC28).
 - The `mcp method=` and `mcp rejected` log lines now include the caller ARN that
   Lambda verified for the request (`caller=…`, `-` when there is none). It is
   limited to IAM ARN characters and 256 characters, so a crafted role-session

@@ -46,3 +46,11 @@ jobs:
 
       - name: Run the tests
         run: python3 -I -m pytest -q tests/
+
+      # Fails the check if any resolved dependency has a known vulnerability
+      # (PyPI advisory database). Resolves the same requirements file the layer
+      # build uses, including transitive dependencies.
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          python3 -I -m pip install pip-audit==2.10.1
+          python3 -I -m pip_audit -r layers/dependencies/requirements.txt

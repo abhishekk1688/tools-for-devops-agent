@@ -386,9 +386,10 @@ logged with its caller ARN too. Arguments and results are never logged.
 ## Security Model
 
 - **Read-only by construction.** The execution role in `template.yaml` lists
-  exactly the 21 read actions the tools call. Those actions do not support
-  resource-level scoping, so the resource is `*`; the boundary is the action
-  list.
+  exactly the 21 read actions the tools call. Some of them support
+  resource-level permissions, but the tools read whatever gateways, route tables
+  and connections exist in the account, which aren't known when you deploy, so
+  the resource is `*`; the boundary is the read-only action list.
 - **No credentials or secrets.** The server uses its Lambda execution role. It
   stores no data, writes nothing, and makes no calls outside AWS APIs. FastMCP's
   startup update check (a request to `pypi.org`) and banner are turned off, in
@@ -416,6 +417,14 @@ logged with its caller ARN too. Arguments and results are never logged.
   execution environment. The server stores no data; the only thing written is
   one CloudWatch Logs line per request (method, tool name and caller ARN),
   which CloudWatch encrypts at rest.
+- **Denial of service.**
+  - Only SigV4-signed callers that IAM allows can invoke the function, and unsigned requests are rejected before it runs.
+  - Tools make read-only calls, and most read only the first page, which caps the work per request. The `hours` lookback is clamped to 1 hour–14 days.
+  - boto3 uses standard retry mode, so throttling backs off instead of retrying harder.
+  - The function times out at 120 seconds.
+  - When the first page isn't the whole result, the tool flags it `truncated` rather than reading more pages.
+  - Set `ReservedConcurrency` (step 1) to cap concurrent executions, so a looping agent can't use up the account's Lambda concurrency or shared EC2 and Direct Connect API quotas.
+  - No load test has been run; size `ReservedConcurrency` to the account's quotas.
 - **Structured parameters only.** Tools accept a Region and, where relevant, a
   resource ID or lookback window. No tool accepts arbitrary API names or
   queries.
