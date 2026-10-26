@@ -1353,8 +1353,32 @@ def _get_name_tag(tags):
 from fastmcp.server.middleware import Middleware  # noqa: E402
 
 
+def _log_caller(arn):
+    """The caller ARN as safe log text: ARN characters only, capped, '-' if unknown.
+
+    The ARN comes from Lambda's verified request context, but its role-session
+    part is chosen by whoever assumed the role, so strip anything outside the
+    IAM ARN character set before logging. That keeps a crafted session name
+    from forging log lines (e.g. embedded newlines) or injecting control
+    characters.
+    """
+    if not isinstance(arn, str):
+        return "-"
+    return re.sub(r"[^A-Za-z0-9:/_+=,.@-]", "", arn)[:256] or "-"
+
+
+def _request_caller():
+    """The verified caller ARN of the HTTP request being handled, or None."""
+    from fastmcp.server.dependencies import get_http_request
+
+    try:
+        return _caller_arn(get_http_request().scope)
+    except Exception:  # no HTTP request in context (e.g. in-process calls)
+        return None
+
+
 class _MethodLog(Middleware):
-    """Log each MCP method (no arguments or results) to CloudWatch."""
+    """Log each MCP method, tool name and caller ARN (no arguments or results) to CloudWatch."""
 
     async def on_message(self, context, call_next):
         tool = ""
@@ -1365,7 +1389,8 @@ class _MethodLog(Middleware):
             raw = str(getattr(context.message, "name", "?"))
             safe = re.sub(r"[^A-Za-z0-9_.-]", "", raw)[:64] or "?"
             tool = f" tool={safe}"
-        print(f"mcp method={context.method}{tool}", flush=True)
+        caller = _log_caller(_request_caller())
+        print(f"mcp method={context.method}{tool} caller={caller}", flush=True)
         return await call_next(context)
 
 
@@ -1505,7 +1530,7 @@ class _InvokerAllowlist:
         caller = _caller_arn(scope)
         if prefix and caller and caller.startswith(prefix):
             return await self.app(scope, receive, send)
-        print("mcp rejected caller not in ALLOWED_INVOKER_ROLE_ARN", flush=True)
+        print(f"mcp rejected caller={_log_caller(caller)} not in ALLOWED_INVOKER_ROLE_ARN", flush=True)
         body = b'{"error":"forbidden"}\n'
         await send({"type": "http.response.start", "status": 403,
                     "headers": [(b"content-type", b"application/json"),

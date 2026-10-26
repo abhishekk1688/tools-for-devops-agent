@@ -94,6 +94,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   instructions tell the agent to report such results as incomplete rather than
   treating missing items as absent (T-014). Tests cover a first-page-only call,
   `AdditionalRoutesAvailable`, and a fully paginated call that is not flagged.
+- The `mcp method=` and `mcp rejected` log lines now include the caller ARN that
+  Lambda verified for the request (`caller=…`, `-` when there is none). It is
+  limited to IAM ARN characters and 256 characters, so a crafted role-session
+  name can't forge log lines. CloudWatch now shows who called which tool
+  (BSC40 / T-011). Tests cover the served, rejected and injection cases.
+- The execution-role comment in `template.yaml` no longer says none of the
+  actions support resource-level permissions. It now says the resource is `*`
+  because the resources aren't known at deploy time (BSC28).
 - A test now checks that the README's invoker-role trust policy keeps the
   confused-deputy conditions: `aidevops.amazonaws.com` principal,
   `aws:SourceAccount`, and `aws:SourceArn` scoped to `service/*` (BSC6 /

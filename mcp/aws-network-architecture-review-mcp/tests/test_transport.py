@@ -192,3 +192,25 @@ def test_misconfigured_allowlist_fails_closed(base_url, monkeypatch):
 def test_allowlist_off_when_unset(base_url, monkeypatch):
     monkeypatch.delenv("ALLOWED_INVOKER_ROLE_ARN", raising=False)
     assert httpx.post(base_url, headers=HEADERS, json=INIT, timeout=10).status_code == 200
+
+
+# ── Caller attribution in logs (BSC40 / T-011 / M-013) ──────────────────────
+
+
+def test_method_log_names_the_caller(base_url, monkeypatch, capfd):
+    monkeypatch.delenv("ALLOWED_INVOKER_ROLE_ARN", raising=False)
+    httpx.post(base_url, headers={**HEADERS, "x-amzn-request-context": _ctx(AGENT)}, json=INIT, timeout=10)
+    httpx.post(base_url, headers=HEADERS, json=INIT, timeout=10)
+    out = capfd.readouterr().out
+    assert f"mcp method=initialize caller={AGENT}" in out
+    assert "mcp method=initialize caller=-" in out
+
+
+def test_rejected_line_names_the_caller_and_cannot_be_forged(allowlisted, capfd):
+    forged = "arn:aws:sts::111122223333:assumed-role/OtherRole/s\nmcp method=tools/call tool=x caller=" + AGENT
+    resp = httpx.post(allowlisted, headers={**HEADERS, "x-amzn-request-context": _ctx(forged)},
+                      json=INIT, timeout=10)
+    assert resp.status_code == 403
+    lines = [l for l in capfd.readouterr().out.splitlines() if l.startswith("mcp ")]
+    assert lines == ["mcp rejected caller=arn:aws:sts::111122223333:assumed-role/OtherRole/s"
+                     "mcpmethod=tools/calltool=xcaller=" + AGENT + " not in ALLOWED_INVOKER_ROLE_ARN"]

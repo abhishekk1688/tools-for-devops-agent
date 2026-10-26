@@ -87,9 +87,11 @@ Resources:
           FASTMCP_CHECK_FOR_UPDATES: "off"
           FASTMCP_SHOW_SERVER_BANNER: "false"
       Policies:
-        # Read-only: exactly the actions server.py calls. Describe/List/Get/Search
-        # actions in these services do not support resource-level scoping, so the
-        # resource is "*"; the boundary is the action list, not the resource.
+        # Read-only: exactly the actions server.py calls. Some of these actions
+        # support resource-level permissions, but the tools read whatever
+        # gateways, route tables and connections exist in the account, which
+        # aren't known when the stack is deployed, so the resource is "*" and the
+        # boundary is the read-only action list.
         - Statement:
             - Sid: DirectConnectRead
               Effect: Allow

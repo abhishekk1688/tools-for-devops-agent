@@ -307,7 +307,7 @@ someone else. A direct invoke is different; see the next section. The setting
 is opt-in only because the role is created after the stack; a deployment that
 leaves it unset keeps the risk described above.
 
-With the setting on, expect one `mcp rejected caller not in
+With the setting on, expect one `mcp rejected caller=- not in
 ALLOWED_INVOKER_ROLE_ARN` line, followed by `"GET /mcp HTTP/1.1" 403`, in the
 function's log at every cold start. That's the Lambda Web Adapter's readiness
 probe: it calls `/mcp` from inside the execution environment with no caller
@@ -378,8 +378,10 @@ DevOps Agent; `tests/test_transport.py` covers each.
   returns `405`, meaning no server-to-client stream is offered.
 
 Memory is 1024 MB to shorten cold starts, since DevOps Agent opens several
-sessions in parallel. Each request logs its MCP method name, and the tool name
-for `tools/call`, to CloudWatch. Arguments and results are never logged.
+sessions in parallel. Each request logs its MCP method name, the tool name for
+`tools/call`, and the caller ARN Lambda verified (`caller=`, or `-` when there
+is none) to CloudWatch. A request the `AllowedInvokerRoleArn` check rejects is
+logged with its caller ARN too. Arguments and results are never logged.
 
 ## Security Model
 
@@ -412,8 +414,8 @@ for `tools/call`, to CloudWatch. Arguments and results are never logged.
   HTTPS only, and the server calls AWS APIs over TLS. The only plain-HTTP hop is
   the Lambda Web Adapter talking to the server on `127.0.0.1` inside the Lambda
   execution environment. The server stores no data; the only thing written is
-  one CloudWatch Logs line per request (method and tool name), which CloudWatch
-  encrypts at rest.
+  one CloudWatch Logs line per request (method, tool name and caller ARN),
+  which CloudWatch encrypts at rest.
 - **Structured parameters only.** Tools accept a Region and, where relevant, a
   resource ID or lookback window. No tool accepts arbitrary API names or
   queries.
