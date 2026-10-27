@@ -34,6 +34,7 @@ os.environ.setdefault("FASTMCP_SHOW_SERVER_BANNER", "false")
 
 import boto3  # noqa: E402
 from botocore.config import Config  # noqa: E402
+from botocore.exceptions import ClientError  # noqa: E402
 from fastmcp import FastMCP  # noqa: E402
 
 # Standard retry mode backs off on throttling instead of amplifying it, so a
@@ -44,9 +45,9 @@ BOTO_CONFIG = Config(retries={"mode": "standard", "max_attempts": 3})
 mcp = FastMCP(
     "aws-network-architecture-review-mcp",
     # Unhandled exceptions return a generic error to the client instead of the
-    # exception text or traceback. Handled AWS API errors still return the SDK
-    # message to the authorized caller in 'error' / 'data_errors' (T-009,
-    # residual low risk, accepted).
+    # exception text or traceback. AWS API errors (botocore ClientError) return
+    # their error code and SDK message to the authorized caller, in 'error'
+    # (see _tool) or 'data_errors' (T-009, residual low risk, accepted).
     mask_error_details=True,
     instructions=(
         "Read-only AWS hybrid network architecture review. For Direct Connect, "
@@ -119,7 +120,15 @@ def _report_truncation(fn):
     def wrapper(*args, **kwargs):
         token = _TRUNCATED.set(set())
         try:
-            result = fn(*args, **kwargs)
+            try:
+                result = fn(*args, **kwargs)
+            except ClientError as e:
+                # An AWS API error (e.g. an unknown resource ID or a missing
+                # permission) is useful to the agent, so return its code and
+                # message as data. Every other exception stays masked.
+                err = e.response.get("Error", {})
+                message = f"{err.get('Code', 'ClientError')}: {err.get('Message', '')}"
+                result = json.dumps({"error": _clean_label(message, max_len=512)}, indent=2)
             seen = _TRUNCATED.get()
         finally:
             _TRUNCATED.reset(token)
@@ -136,7 +145,7 @@ def _report_truncation(fn):
 
 
 def _tool(fn):
-    """Register fn as an MCP tool that reports truncated AWS responses."""
+    """Register fn as an MCP tool that reports truncated AWS responses and AWS API errors."""
     return mcp.tool()(_report_truncation(fn))
 
 
@@ -1356,8 +1365,11 @@ from fastmcp.server.middleware import Middleware  # noqa: E402
 def _log_caller(arn):
     """The caller ARN as safe log text: ARN characters only, capped, '-' if unknown.
 
-    The ARN comes from Lambda's verified request context, but its role-session
-    part is chosen by whoever assumed the role, so strip anything outside the
+    For a request through the Function URL, the ARN is the caller Lambda
+    verified. On a direct lambda:InvokeFunction call the caller writes the event,
+    so the ARN is only the identity they claimed; CloudTrail data events for the
+    function record the real principal. Either way the role-session part is
+    chosen by whoever assumed the role, so strip anything outside the
     IAM ARN character set before logging. That keeps a crafted session name
     from forging log lines (e.g. embedded newlines) or injecting control
     characters.
@@ -1368,7 +1380,10 @@ def _log_caller(arn):
 
 
 def _request_caller():
-    """The verified caller ARN of the HTTP request being handled, or None."""
+    """The caller ARN in the request context being handled, or None.
+
+    Verified by Lambda only on the Function URL path; see _log_caller.
+    """
     from fastmcp.server.dependencies import get_http_request
 
     try:

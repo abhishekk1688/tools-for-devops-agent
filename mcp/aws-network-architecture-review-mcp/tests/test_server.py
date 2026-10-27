@@ -404,3 +404,21 @@ def test_metrics_lookback_is_clamped(clients, hours, expected):
     server.get_dx_cloudwatch_metrics("us-east-1", "dxcon-test1", hours)
     kwargs = clients["cloudwatch"].get_metric_data.call_args.kwargs
     assert kwargs["EndTime"] - kwargs["StartTime"] == timedelta(hours=expected)
+
+
+# ─── AWS API errors are returned; other exceptions stay masked (T-009) ──────
+
+
+def test_unknown_vif_id_returns_the_aws_error_message(stubbed, monkeypatch):
+    orig = server.get_client
+
+    def get(svc, region="us-east-1"):
+        client = orig(svc, region)
+        stubbed[svc].add_client_error(
+            "describe_virtual_interfaces", service_error_code="DirectConnectClientException",
+            service_message="Virtual interface dxvif-doesnotexist does not exist", http_status_code=400)
+        return client
+
+    monkeypatch.setattr(server, "get_client", get)
+    out = json.loads(server.get_dx_vif_details("us-east-1", vif_id="dxvif-doesnotexist"))
+    assert out == {"error": "DirectConnectClientException: Virtual interface dxvif-doesnotexist does not exist"}

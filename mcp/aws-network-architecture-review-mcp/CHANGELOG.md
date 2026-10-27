@@ -102,11 +102,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `hours` lookback is clamped to 1 hour–14 days (Test-N08).
 - The README Security Model now has a denial-of-service summary, and no longer
   says the read actions don't support resource-level permissions (BSC21, BSC28).
-- The `mcp method=` and `mcp rejected` log lines now include the caller ARN that
-  Lambda verified for the request (`caller=…`, `-` when there is none). It is
-  limited to IAM ARN characters and 256 characters, so a crafted role-session
-  name can't forge log lines. CloudWatch now shows who called which tool
-  (BSC40 / T-011). Tests cover the served, rejected and injection cases.
+- The `mcp method=` and `mcp rejected` log lines now include the caller ARN
+  from the request context (`caller=…`, `-` when there is none). It is limited
+  to IAM ARN characters and 256 characters, so a crafted role-session name
+  can't forge log lines. CloudWatch now shows who called which tool (BSC40 /
+  T-011). Tests cover the served, rejected and injection cases. Lambda verifies
+  that ARN only on the Function URL path; on a direct `lambda:InvokeFunction`
+  call it is the identity the caller claimed, and only CloudTrail data events
+  for the function record the real principal.
+- AWS API errors (botocore `ClientError`) a tool doesn't handle itself now
+  return `{"error": "<Code>: <Message>"}` (control characters stripped, capped
+  at 512 characters) instead of a generic masked error, so the agent can report
+  an unknown resource ID or a missing permission. All other exceptions stay
+  masked (T-009).
 - The execution-role comment in `template.yaml` no longer says none of the
   actions support resource-level permissions. It now says the resource is `*`
   because the resources aren't known at deploy time (BSC28).

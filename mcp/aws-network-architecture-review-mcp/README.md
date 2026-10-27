@@ -379,9 +379,14 @@ DevOps Agent; `tests/test_transport.py` covers each.
 
 Memory is 1024 MB to shorten cold starts, since DevOps Agent opens several
 sessions in parallel. Each request logs its MCP method name, the tool name for
-`tools/call`, and the caller ARN Lambda verified (`caller=`, or `-` when there
-is none) to CloudWatch. A request the `AllowedInvokerRoleArn` check rejects is
-logged with its caller ARN too. Arguments and results are never logged.
+`tools/call`, and the caller ARN from the request context (`caller=`, or `-`
+when there is none) to CloudWatch. A request the `AllowedInvokerRoleArn` check
+rejects is logged with its caller ARN too. Arguments and results are never
+logged. Lambda verifies that ARN only for requests through the Function URL; on
+a direct `lambda:InvokeFunction` call it is whatever identity the caller put in
+the event (see [Scope `lambda:InvokeFunction`](#scope-lambdainvokefunction-for-every-principal)).
+To record the real calling principal for every invoke, enable CloudTrail data
+events for the function (`AWS::Lambda::Function`).
 
 ## Security Model
 
@@ -435,9 +440,11 @@ logged with its caller ARN too. Arguments and results are never logged.
   data, never as instructions.
 - **Unhandled exceptions are masked.** An unhandled exception returns a generic
   error to the caller (`mask_error_details`), with no exception text or
-  traceback. AWS API errors the tools handle still return the SDK error message
-  in an `error` or `data_errors` field to the caller, who is already
-  SigV4-authorized in the same account. That residual risk is low and accepted.
+  traceback. AWS API errors (for example an unknown resource ID or a missing
+  permission) return their error code and SDK message in an `error` or
+  `data_errors` field to the caller, who is already SigV4-authorized in the same
+  account. The message can name ARNs or the account ID; that residual risk is
+  low and accepted.
 - **Local runs bind loopback.** Running `server.py` directly listens on
   `127.0.0.1`, because that path has no SigV4 boundary in front of it.
 
